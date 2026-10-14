@@ -4,7 +4,10 @@
 import webpush from 'web-push';
 
 const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY: KEY, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, TEST } = process.env;
-if (!KEY || !VAPID_PRIVATE_KEY) { console.error('Missing secrets: SUPABASE_SERVICE_ROLE_KEY and/or VAPID_PRIVATE_KEY'); process.exit(1); }
+if (!KEY || !VAPID_PRIVATE_KEY) {
+  console.log('Reminders are not set up yet (add the SUPABASE_SERVICE_ROLE_KEY and VAPID_PRIVATE_KEY secrets). Skipping.');
+  process.exit(0);
+}
 webpush.setVapidDetails('https://andydiwa.github.io/ag-finance/', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
 const H = KEY.startsWith('sb_') ? { apikey: KEY } : { apikey: KEY, Authorization: 'Bearer ' + KEY };
@@ -59,7 +62,16 @@ function dueItems(records, name, daysBefore) {
 }
 
 const members = await api('members?select=email,name');
-const subs = await api('push_subs?select=endpoint,email,sub,days_before');
+let subs;
+try { subs = await api('push_subs?select=endpoint,email,sub,days_before'); }
+catch (e) {
+  if (/push_subs|PGRST205|42P01|does not exist|schema cache/i.test(String(e.message))) {
+    console.log('The push_subs table does not exist yet (run supabase/reminders.sql in Supabase). Skipping.');
+    process.exit(0);
+  }
+  throw e;
+}
+if (!subs.length) { console.log('No phones have reminders turned on yet. Nothing to send.'); process.exit(0); }
 const records = TEST === 'true' ? [] : await allRecords();
 let sent = 0, removed = 0;
 for (const s of subs) {
